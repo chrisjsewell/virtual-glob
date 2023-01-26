@@ -1,5 +1,7 @@
 # virtual-glob
 
+[![PyPI](https://img.shields.io/pypi/v/virtual-glob?label=PyPI&logo=pypi&style=social)](https://pypi.org/project/virtual_glob/)
+
 Globbing of remote/virtual file systems.
 
 ## Motivation
