@@ -30,6 +30,11 @@ matches = {p.path for p in glob(fs, "**/my[0-9].txt")}
 assert matches == {"a/b/c/my1.txt", "e/f/g/my2.txt"}
 ```
 
+`glob` also accepts the keyword arguments:
+
+- `follow_symlinks`: whether to follow symbolic links when iterating directories (default: `False`)
+- `depth_first`: whether to iterate directories in depth-first order, or breadth-first (default: `True`)
+
 See the tests for more examples.
 
 ## Virtual file systems
@@ -44,6 +49,9 @@ class VirtualPath(Protocol):
 
     def is_dir(self) -> bool:
         """Return True if this path is a directory."""
+
+    def is_symlink(self) -> bool:
+        """Return True if this path is a symbolic link."""
 
     def iterdir(self: PathType) -> Iterable[PathType]:
         """Iterate over the contents of this directory."""

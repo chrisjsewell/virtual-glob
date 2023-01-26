@@ -183,3 +183,29 @@ def test_breadth_first_files() -> None:
         "e/f/g/h",
     ]
     assert [p.path for p in glob(path, "**/*", depth_first=False)] == expected
+
+
+def test_symlink_pathlib(tmp_path: Path):
+    """Test follow_symlinks for Path."""
+    path = tmp_path / "a/d/c"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+    (tmp_path / "a/b").symlink_to(tmp_path / "a/d")
+    assert {p.relative_to(tmp_path).as_posix() for p in glob(tmp_path, "**/c")} == {
+        "a/d/c"
+    }
+    assert {
+        p.relative_to(tmp_path).as_posix()
+        for p in glob(tmp_path, "**/c", follow_symlinks=True)
+    } == {"a/b/c", "a/d/c"}
+
+
+def test_symlink_in_memory():
+    """Test follow_symlinks for InMemoryPath."""
+    path = InMemoryPath.from_list(["a/b/c", "a/d/c"])
+    path.joinpath("a", "b")._get_element()["is_symlink"] = True
+    assert {p.path for p in glob(path, "**/c")} == {"a/d/c"}
+    assert {p.path for p in glob(path, "**/c", follow_symlinks=True)} == {
+        "a/b/c",
+        "a/d/c",
+    }

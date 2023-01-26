@@ -8,7 +8,7 @@ from functools import lru_cache
 import re
 from typing import Callable, Iterable, Protocol, TypedDict, TypeVar
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 
 PathType = TypeVar("PathType", bound="VirtualPath")
@@ -24,6 +24,10 @@ class VirtualPath(Protocol):
     @abstractmethod
     def is_dir(self) -> bool:
         """Return True if this path is a directory."""
+
+    @abstractmethod
+    def is_symlink(self) -> bool:
+        """Return True if this path is a symbolic link."""
 
     @abstractmethod
     def iterdir(self: PathType) -> Iterable[PathType]:
@@ -46,6 +50,7 @@ class DictFs(TypedDict):
     """A virtual file system backed by a dictionary."""
 
     is_dir: bool
+    is_symlink: bool
     name: str
     contents: dict[str, DictFs]
 
@@ -58,7 +63,7 @@ class InMemoryPath(VirtualPath):
         """Create a virtual path from a list of POSIX paths,
         if the path ends with a slash it is a directory.
         """
-        fs: DictFs = {"is_dir": True, "name": "", "contents": {}}
+        fs: DictFs = {"is_dir": True, "is_symlink": False, "name": "", "contents": {}}
         for path in paths:
             sub_fs = fs
             is_dir = path.endswith("/")
@@ -67,11 +72,17 @@ class InMemoryPath(VirtualPath):
                 if part in sub_fs["contents"]:
                     sub_sub_fs = sub_fs["contents"][part]
                 else:
-                    sub_sub_fs = {"is_dir": True, "name": part, "contents": {}}
+                    sub_sub_fs = {
+                        "is_dir": True,
+                        "is_symlink": False,
+                        "name": part,
+                        "contents": {},
+                    }
                     sub_fs["contents"][part] = sub_sub_fs
                 sub_fs = sub_sub_fs
             sub_fs["contents"][parts[-1]] = {
                 "is_dir": is_dir,
+                "is_symlink": False,
                 "name": parts[-1],
                 "contents": {},
             }
@@ -110,6 +121,10 @@ class InMemoryPath(VirtualPath):
         fs = self._get_element()
         return fs["is_dir"] if fs is not None else False
 
+    def is_symlink(self) -> bool:
+        fs = self._get_element()
+        return fs["is_symlink"] if fs is not None else False
+
     def iterdir(self) -> Iterable[InMemoryPath]:
         fs = self._get_element()
         if fs is None:
@@ -127,9 +142,27 @@ class InMemoryPath(VirtualPath):
 
 
 def glob(
-    path: PathType, pattern: str, *, depth_first: bool = True
+    path: PathType,
+    pattern: str,
+    *,
+    depth_first: bool = True,
+    follow_symlinks: bool = False,
 ) -> Iterable[PathType]:
     """Glob a virtual directory."""
+
+    if follow_symlinks:
+
+        def iterdir(p: PathType) -> Iterable[PathType]:
+            """Iterate over the contents of this directory."""
+            yield from p.iterdir()
+
+    else:
+
+        def iterdir(p: PathType) -> Iterable[PathType]:
+            """Iterate over the contents of this directory, only if it is not a symlink."""
+            if p.is_symlink():
+                return
+            yield from p.iterdir()
 
     # initial validation and patterns analysis
     if not path.is_dir():
@@ -167,11 +200,11 @@ def glob(
         # then we can simply yield all the directories recursively
         if common_path and pattern_parts == ["**"]:
             yield path
-        path_queue = deque([p for p in path.iterdir() if p.is_dir()])
+        path_queue = deque([p for p in iterdir(path) if p.is_dir()])
         while path_queue:
             item = queue_pop(path_queue)
             yield item
-            for subpath in item.iterdir():
+            for subpath in iterdir(item):
                 if subpath.is_dir():
                     path_queue.append(subpath)
         return
@@ -179,7 +212,7 @@ def glob(
     if pattern_parts == ["**", "*"] and not only_dir:
         # then we can simply yield recursively
         path_queue = deque()
-        for item in path.iterdir():
+        for item in iterdir(path):
             if item.is_dir():
                 path_queue.append(item)
             else:
@@ -187,7 +220,7 @@ def glob(
         while path_queue:
             item = queue_pop(path_queue)
             yield item
-            for child in item.iterdir():
+            for child in iterdir(item):
                 if child.is_dir():
                     path_queue.append(child)
                 else:
@@ -203,7 +236,7 @@ def glob(
                 raise ValueError("Invalid pattern: ** must be the only part of a path")
 
     if not has_double_star:
-        yield from _no_double_star(path, pattern_parts, only_dir, queue_pop)
+        yield from _no_double_star(path, pattern_parts, only_dir, queue_pop, iterdir)
         return
 
     # if there are `**` parts, before the end of the pattern,
@@ -222,7 +255,7 @@ def glob(
                 at_root = False
             else:
                 rel_dir = [*rel_dir, subpath.name]
-            dstar_queue.extend([(p, rel_dir) for p in subpath.iterdir()])
+            dstar_queue.extend([(p, rel_dir) for p in iterdir(subpath)])
 
 
 _MAGIC_REGEX = re.compile("[*?[]")
@@ -250,6 +283,7 @@ def _no_double_star(
     queue_pop: Callable[
         [deque[tuple[PathType, list[str]]]], tuple[PathType, list[str]]
     ],
+    iterdir: Callable[[PathType], Iterable[PathType]],
 ) -> Iterable[PathType]:
     """No `***` in the pattern,
     so do simple recursion through the pattern parts,
@@ -271,7 +305,7 @@ def _no_double_star(
                 yield only_path
             continue
         part = parts[0]
-        for subsubpath in subpath.iterdir():
+        for subsubpath in iterdir(subpath):
             if fnmatchcase(subsubpath.name, part):
                 queue.append((subsubpath, parts[1:]))
 
