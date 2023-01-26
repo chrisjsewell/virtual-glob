@@ -8,7 +8,7 @@ from functools import lru_cache
 import re
 from typing import Callable, Iterable, Protocol, TypedDict, TypeVar
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 PathType = TypeVar("PathType", bound="VirtualPath")
@@ -78,7 +78,7 @@ class InMemoryPath(VirtualPath):
 
         return cls(fs)
 
-    def __init__(self, fs: DictFs, path: tuple[str] = ()) -> None:
+    def __init__(self, fs: DictFs, path: tuple[str, ...] = ()) -> None:
         """Initialise the path."""
         self._fs = fs
         self._path = path
@@ -117,7 +117,7 @@ class InMemoryPath(VirtualPath):
         if not fs["is_dir"]:
             raise NotADirectoryError("path is not a directory")
         for name in fs["contents"]:
-            yield InMemoryPath(self._fs, self._path + (name,))
+            yield InMemoryPath(self._fs, (*self._path, name))
 
     def joinpath(self, *parts: str) -> InMemoryPath:
         return InMemoryPath(self._fs, self._path + parts)
@@ -178,7 +178,7 @@ def glob(
 
     if pattern_parts == ["**", "*"] and not only_dir:
         # then we can simply yield recursively
-        path_queue: deque[PathType] = deque()
+        path_queue = deque()
         for item in path.iterdir():
             if item.is_dir():
                 path_queue.append(item)
@@ -214,21 +214,21 @@ def glob(
     while dstar_queue:
         subpath, rel_dir = queue_pop(dstar_queue)
         if (not only_dir) or subpath.is_dir():
-            rel_path = "/".join(rel_dir + [subpath.name])
+            rel_path = "/".join([*rel_dir, subpath.name])
             if pattern_regex.fullmatch(rel_path):
                 yield subpath
         if subpath.is_dir():
             if at_root:
                 at_root = False
             else:
-                rel_dir = rel_dir + [subpath.name]
+                rel_dir = [*rel_dir, subpath.name]
             dstar_queue.extend([(p, rel_dir) for p in subpath.iterdir()])
 
 
 _MAGIC_REGEX = re.compile("[*?[]")
 
 
-def _has_magic(*string: str):
+def _has_magic(*string: str) -> bool:
     """Return True if any of the string have magic characters in them."""
     return any(_MAGIC_REGEX.search(s) is not None for s in string)
 
@@ -247,7 +247,9 @@ def _no_double_star(
     path: PathType,
     pattern_parts: list[str],
     only_dir: bool,
-    queue_pop: Callable[[deque], tuple[PathType, list[str]]],
+    queue_pop: Callable[
+        [deque[tuple[PathType, list[str]]]], tuple[PathType, list[str]]
+    ],
 ) -> Iterable[PathType]:
     """No `***` in the pattern,
     so do simple recursion through the pattern parts,
@@ -275,7 +277,7 @@ def _no_double_star(
 
 
 @lru_cache(maxsize=128)
-def _create_regex(pattern: str) -> re.Pattern:
+def _create_regex(pattern: str) -> re.Pattern[str]:
     """Create a regex from a glob pattern."""
     regex = ""
     for part in pattern.split("/"):
@@ -286,7 +288,7 @@ def _create_regex(pattern: str) -> re.Pattern:
     return re.compile(regex.rstrip("/"))
 
 
-def _translate(pat):
+def _translate(pat: str) -> str:
     """Translate a shell PATTERN to a regular expression.
 
     This is copied from the fnmatch module, but with the following changes:
