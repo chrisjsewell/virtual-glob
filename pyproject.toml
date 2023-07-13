@@ -12,7 +12,7 @@ classifiers = ["License :: OSI Approved :: MIT License"]
 requires-python = ">=3.8"
 
 [project.urls]
-Home = "https://github.com/chrisjsewell/virtual_glob"
+Home = "https://github.com/chrisjsewell/virtual-glob"
 
 [project."optional-dependencies"]
 testing = ["pytest"]
