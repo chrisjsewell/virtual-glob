@@ -1,4 +1,5 @@
 """Globbing of virtual file systems."""
+
 from __future__ import annotations
 
 from abc import abstractmethod
